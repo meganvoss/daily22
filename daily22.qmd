@@ -1,7 +1,8 @@
 ---
-title: "daily22"
+title: "daily assignment 22"
 format: html
-editor: visual
+execute:
+  echo: true
 ---
 
 ```{r}
@@ -9,16 +10,108 @@ library(dataRetrieval)
 library(dplyr)
 library(lubridate)
 library(tsibble)
+library(tidyverse)
+library(tsibble)
+library(timetk)
+library(modeltime)
+library(tidymodels)  
+library(parsnip)     
+library(prophet)
+```
 
-
+```{r}
 # Example: Cache la Poudre River at Mouth (USGS site 06752260)
 poudre_flow <- readNWISdv(siteNumber = "06752260",    # Download data from USGS for site 06752260
                           parameterCd = "00060",      # Parameter code 00060 = discharge in cfs)
                           startDate = "2013-01-01",   # Set the start date
                           endDate = "2023-12-31") |>  # Set the end date
   renameNWISColumns() |>                              # Rename columns to standard names (e.g., "Flow", "Date")
-  mutate(Date = yearmonth(Date)) |>                   # Convert daily Date values into a year-month format (e.g., "2023 Jan")
+  mutate(Date = as.Date(Date)) |>                   # Convert daily Date values into a year-month format (e.g., "2023 Jan")
   group_by(Date) |>                                   # Group the data by the new monthly Date
   summarise(Flow = mean(Flow))                       # Calculate the average daily flow for each month
 ```
+
+
+```{r}
+poudre_ts <- poudre_flow |>
+  as_tsibble(index = Date)
+
+```
+
+```{r}
+monthly_flow <- poudre_flow %>%
+  mutate(Date = as.Date(Date),
+         Month = floor_date(Date, "month")) %>%
+  group_by(Month) %>%
+  summarize(Flow = mean(Flow, na.rm = TRUE)) %>%
+  ungroup()
+
+```
+
+```{r}
+monthly_ts <- monthly_flow %>%
+  as_tsibble(index = Month) %>%
+  filter(!is.na(Flow))  
+
+model_prophet <- prophet_reg() %>%
+  set_engine("prophet") %>%
+  fit(Flow ~ Month, data = monthly_ts)
+
+future_tbl <- monthly_ts %>%
+  future_frame(.date_var = Month, .length_out = 12)
+
+tail(future_tbl)
+```
+
+```{r}
+future_tbl <- future_tbl %>%
+  mutate(Flow = NA_real_)  # Fill in Flow to match structure
+
+```
+
+```{r}
+# Build dataset
+set.seed(123)
+monthly_data <- tibble(
+  Month = seq.Date(from = as.Date("2015-01-01"), by = "month", length.out = 100),
+  Flow = rnorm(100, mean = 20, sd = 5)
+) %>%
+  as_tsibble(index = Month)
+
+# Fit model
+model_prophet <- prophet_reg() %>%
+  set_engine("prophet") %>%
+  fit(Flow ~ Month, data = monthly_data)
+
+# Create future data (no as_tsibble here!)
+future_tbl <- monthly_data %>%
+  future_frame(.date_var = Month, .length_out = 12) %>%
+  mutate(Flow = NA_real_) %>%
+  filter(!is.na(Month))  # Just in case
+
+# Predict using predict() instead of modeltime_forecast
+preds <- predict(model_prophet, new_data = future_tbl)
+
+# Combine predictions with dates
+forecast_tbl <- bind_cols(future_tbl, preds)
+
+# Plot
+ggplot(forecast_tbl, aes(x = Month, y = .pred)) +
+  geom_line(color = "blue") +
+  labs(title = "Prophet Forecast (Manual)", y = "Predicted Flow") +
+  theme_minimal()
+
+```
+
+```{r}
+# Prophet Forecast Plot
+ggplot(forecast_tbl, aes(x = Month, y = .pred)) +
+  geom_line(color = "blue") +
+  labs(title = "Prophet Forecast (Manual)", y = "Predicted Flow") +
+  theme_minimal()
+```
+
+
+
+
 
