@@ -111,7 +111,67 @@ ggplot(forecast_tbl, aes(x = Month, y = .pred)) +
   theme_minimal()
 ```
 
+```{r}
+library(modeltime)
+library(parsnip)
+library(timetk)
+library(tsibble)
 
+# Fit ARIMA model
+model_arima <- arima_reg() %>%
+  set_engine("auto_arima") %>%
+  fit(Flow ~ Month, data = monthly_data)
 
+# Predict using ARIMA
+future_tbl_arima <- monthly_data %>%
+  future_frame(.date_var = Month, .length_out = 12) %>%
+  mutate(Flow = NA_real_)
+
+preds_arima <- predict(model_arima, new_data = future_tbl_arima)
+
+# Combine predictions
+forecast_arima_tbl <- bind_cols(future_tbl_arima, preds_arima)
+
+# Plot ARIMA forecast
+ggplot(forecast_arima_tbl, aes(x = Month, y = .pred)) +
+  geom_line(color = "darkgreen") +
+  labs(title = "ARIMA Forecast (Bonus Model)", y = "Predicted Flow") +
+  theme_minimal()
+```
+
+```{r}
+# Simulate real observed values (for demonstration)
+# Replace this with your real `monthly_obs` if you have it!
+set.seed(456)
+observed_tbl <- forecast_tbl %>%
+  mutate(Observed = .pred + rnorm(12, 0, 1)) %>%
+  select(Month, Observed)
+
+```
+
+```{r}
+comparison_tbl <- forecast_tbl %>%
+  select(Month, Predicted = .pred) %>%
+  inner_join(observed_tbl, by = "Month")
+
+```
+
+```{r}
+lm_model <- lm(Observed ~ Predicted, data = comparison_tbl)
+summary(lm_model)$r.squared
+
+```
+
+```{r}
+ggplot(comparison_tbl, aes(x = Observed, y = Predicted)) +
+  geom_point(color = "purple", size = 3) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray50") +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(title = "Predicted vs Observed Streamflow",
+       x = "Observed Flow",
+       y = "Predicted Flow") +
+  theme_minimal()
+
+```
 
 
